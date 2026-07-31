@@ -45,7 +45,7 @@
   #login{max-width:390px;margin:11vh auto;padding:0 20px}
   .login-card{background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:30px 28px;box-shadow:var(--sh)}
   .brandmark{display:flex;align-items:center;gap:11px;margin-bottom:22px}
-  .brandmark .glyph{overflow:hidden;width:38px;height:38px;border-radius:11px;background:transparent;display:grid;place-items:center}
+  .brandmark .glyph{width:auto;height:42px;background:transparent;display:flex;align-items:center}
   .brandmark b{font-size:1.15rem;letter-spacing:-.01em}
   .brandmark span{display:block;font-size:.72rem;color:var(--muted);font-weight:500;margin-top:1px}
   #login h1{font-size:1.15rem;margin:0 0 4px}
@@ -159,7 +159,7 @@
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
   .skel{background:linear-gradient(90deg,var(--surface2),var(--surface3),var(--surface2));background-size:200% 100%;animation:sk 1.3s infinite;border-radius:8px}
   @keyframes sk{to{background-position:-200% 0}}
-.brandmark .glyph img{width:100%;height:100%;object-fit:contain;display:block}
+.brandmark .glyph img{height:100%;width:auto;display:block}
 </style>
 </head>
 <body>
