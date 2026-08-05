@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
 <title>HeroBloom · valdymo pultas</title>
 <meta name="theme-color" content="#0b0d13">
+<link rel="manifest" href="manifest.webmanifest">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -875,6 +876,14 @@ $('logoutBtn').onclick=logout;
 (async()=>{ const {data}=await sb.auth.getSession();
   if(data.session&&(data.session.user.email||'').toLowerCase()===ADMIN_EMAIL) enterApp();
 })();
+</script>
+<script>
+/* PWA — registruoja service worker, kad telefone atsirastų „Įdiegti programėlę" */
+if('serviceWorker' in navigator){
+  window.addEventListener('load',function(){
+    navigator.serviceWorker.register('sw.js').catch(function(){});
+  });
+}
 </script>
 </body>
 </html>
