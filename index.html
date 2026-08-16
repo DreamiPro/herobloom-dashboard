@@ -294,7 +294,7 @@ const PAGES = [
   { id:'testing',  t:'Testavimas', sub:'Uždaro testavimo apžvalga', icon:'rocket' },
   { id:'modules',  t:'Moduliai ir įpročiai', sub:'Kas naudojama ir kada', icon:'layers' },
   { id:'boss',     t:'Bosų valdymas', sub:'Reti bosai visoms šeimoms', icon:'zap' },
-  { id:'rights',   t:'Teisės', sub:'Mokamų funkcijų prieiga', icon:'key' },
+  { id:'rights',   t:'Premium', sub:'Prenumeratos, dovanos ir nemokamos versijos limitai', icon:'star' },
 ];
 const ICONS = {
   grid:'<path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/>',
@@ -324,6 +324,22 @@ const avatarColor = s=>{let h=0;for(const c of String(s||'x'))h=(h*31+c.charCode
 let TOAST_T; function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(TOAST_T);TOAST_T=setTimeout(()=>t.classList.remove('show'),2600);}
 
 let DUMP=null, EVENTS=null, STATS=null, CURTAB='overview', CHARTS=[];
+/* PREMIUM: prenumeratos gyvena ATSKIROJE `premium` lentelėje (raktas — ŠEIMOS kodas,
+   ne narys). Nupirkus tėvui, galioja ir mamai, ir visiems vaikams.
+   LIMS.enabled — jungiklis: kol false, appuose limitų nėra išvis. */
+let PREM=[], LIMS={}, PREM_BY={};
+const PLAN_NAME={free:'Nemokama',trial:'Bandymas',month:'Mėnesinis',year:'Metinis',life:'Amžinas',gift:'Dovana'};
+const PLAN_COLOR={free:'#7a8496',trial:'#a78bfa',month:'#4c9aff',year:'#4c9aff',life:'#fbbf24',gift:'#34d399'};
+const isPaid=p=>p==='month'||p==='year'||p==='life';
+const dLeft=u=>u?Math.ceil((new Date(u)-Date.now())/864e5):null;
+async function loadPremium(){
+  try{
+    const r=await sb.rpc('admin_premium_list'); PREM=r.error?[]:(r.data||[]);
+    const l=await sb.from('app_state').select('limits').eq('id','global').maybeSingle();
+    LIMS=(l.error||!l.data||!l.data.limits)?{}:l.data.limits;
+  }catch(e){ PREM=[]; LIMS={}; }
+  PREM_BY={}; PREM.forEach(r=>{ PREM_BY[r.code]=r; });
+}
 function clearCharts(){ CHARTS.forEach(c=>{try{c.destroy()}catch(e){}}); CHARTS=[]; }
 
 /* ====================== PRISIJUNGIMAS ====================== */
@@ -345,7 +361,7 @@ function klaida(m){ m=(m||'').toLowerCase();
 async function logout(){ await sb.auth.signOut(); location.reload(); }
 async function enterApp(){ $('login').classList.add('hidden'); $('app').classList.remove('hidden'); $('whoEmail').textContent=ADMIN_EMAIL; buildNav(); await loadAll(); }
 
-const SHORT_LABEL={overview:'Apžvalga',families:'Šeimos',testing:'Testai',modules:'Moduliai',boss:'Bosai',rights:'Teisės'};
+const SHORT_LABEL={overview:'Apžvalga',families:'Šeimos',testing:'Testai',modules:'Moduliai',boss:'Bosai',rights:'Premium'};
 function selectTab(id){ CURTAB=id; document.querySelectorAll('#nav .navitem, #tabbar button').forEach(x=>x.classList.toggle('on',x.dataset.t===id)); render(); try{window.scrollTo(0,0);}catch(e){} }
 function buildNav(){
   const n=$('nav'); n.innerHTML=''; const tb=$('tabbar'); tb.innerHTML='';
@@ -366,12 +382,13 @@ async function loadAll(){
   DUMP=data;
   const ev=await sb.rpc('admin_events',{p_days:30}); EVENTS=ev.error?null:ev.data;
   try{ const cb=await sb.from('custom_bosses').select('id,def').order('id'); CUSTOM_BOSSES=cb.error?[]:(cb.data||[]); }catch(e){ CUSTOM_BOSSES=[]; }
+  await loadPremium();
   STATS=computeStats(DUMP);
   updateNavCounts();
   render();
 }
 function updateNavCounts(){
-  const map={overview:'',families:STATS.famCount,testing:STATS.accountsCount,modules:'',boss:'',rights:STATS.paying};
+  const map={overview:'',families:STATS.famCount,testing:STATS.accountsCount,modules:'',boss:'',rights:PREM.filter(r=>isPaid(r.plan)).length};
   [...$('nav').children].forEach(b=>{ const c=map[b.dataset.t]; if(c!==''&&c!=null){ let s=b.querySelector('.cnt'); if(!s){s=el('span','cnt');b.appendChild(s);} s.textContent=c; } });
 }
 
@@ -567,7 +584,7 @@ function renderFamilies(v){
   const card=el('div','card pad0');
   card.appendChild(el('div',null,'<div style="padding:16px 18px;display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="margin:0">Visos šeimos</h3><span class="tagpill">'+s.famCount+'</span><div style="flex:1"></div><input id="famSearch" placeholder="Ieškoti pagal pavadinimą ar kodą" style="max-width:280px"></div>'));
   const wrap=el('div','tbl-wrap'); const tbl=el('table');
-  tbl.innerHTML='<thead><tr><th>Šeima</th><th>Kodas</th><th class="num">Nariai</th><th class="num">Auksas</th><th class="num">Darbai</th><th>Aktyvi</th><th>Paskyra</th><th>Teisės</th></tr></thead>';
+  tbl.innerHTML='<thead><tr><th>Šeima</th><th>Kodas</th><th class="num">Nariai</th><th class="num">Auksas</th><th class="num">Darbai</th><th>Aktyvi</th><th>Paskyra</th><th>Premium</th></tr></thead>';
   const tb=el('tbody'); tbl.appendChild(tb); wrap.appendChild(tbl); card.appendChild(wrap); v.appendChild(card);
   function draw(q){
     q=(q||'').toLowerCase().trim(); tb.innerHTML='';
@@ -584,7 +601,7 @@ function renderFamilies(v){
         '<td class="num" data-label="Darbai">'+fmt(r.tasksDone)+'</td>'+
         '<td class="muted" data-label="Aktyvi">'+last+'</td>'+
         '<td class="muted" style="font-size:.82rem" data-label="Paskyra">'+(r.owner?esc(r.owner):'<i>vaiko prieiga</i>')+'</td>'+
-        '<td data-label="Teisės">'+(r.ents.length?r.ents.map(e=>'<span class="badge on">'+esc(e)+'</span>').join(' '):'<span class="badge off">—</span>')+'</td>';
+        '<td data-label="Premium">'+planBadge((PREM_BY[r.code]||{}).plan)+'</td>';
       tb.appendChild(tr);
     });
   }
@@ -824,48 +841,136 @@ function bossCreate(v){
 }
 
 /* ---------- TEISĖS ---------- */
+/* ====================== PREMIUM ======================
+   Premium galioja VISAI ŠEIMAI (raktas — šeimos kodas). Nupirkus tėvui,
+   atsirakina ir antram tėvui, ir visiems vaikams — kiekvienam savo telefone.
+   Lentelė `premium` atskira nuo families.data, nes appo saveRemote() perrašo
+   visą data blob'ą ir premium būtų nutrintas.                              */
+
+const LIM_FIELDS=[['kids','Vaikai'],['parents','Tėvai'],['tasks','Darbai'],['rewards','Prekės'],
+  ['shopCats','Kategorijos'],['behaviors','Elgesio taisyklės'],['friends','Draugai'],['historyDays','Istorija (d.)']];
+
+function planBadge(plan){
+  const p=plan||'free';
+  const c=PLAN_COLOR[p]||'#7a8496';
+  return '<span class="badge" style="background:'+c+'22;color:'+c+'">'+esc(PLAN_NAME[p]||p)+'</span>';
+}
+
 function renderRights(v){
-  const s=STATS, b=el('div','bento');
-  const intro=el('div','card c12');
-  intro.appendChild(el('div','info',svg('info')+'<div>Kol kas mokamų funkcijų nėra — tai paruoštas karkasas. Suteikta teisė iškart įrašoma serveryje; kai pridėsim mokamą funkciją, programėlė tikrins šias teises.</div>'));
-  b.appendChild(intro);
+  const b=el('div','bento');
+  const paid=PREM.filter(r=>isPaid(r.plan)).length;
+  const on=LIMS.enabled===true;
 
-  const pick=el('div','card c5');
-  pick.innerHTML='<h3>Pasirink šeimą</h3><div class="h3sub">Valdyk konkrečios šeimos prieigą</div>';
-  const sel=el('select'); sel.innerHTML='<option value="">— pasirink —</option>'+s.familyRows.map(r=>'<option value="'+esc(r.code)+'">'+esc(r.name)+' ('+esc(r.code)+')</option>').join('');
-  pick.appendChild(sel);
-  const summary=el('div'); summary.style.marginTop='14px'; pick.appendChild(summary);
-  b.appendChild(pick);
+  /* --- KPI --- */
+  b.appendChild(kpi('c3','users','#4c9aff','Šeimų iš viso', PREM.length));
+  b.appendChild(kpi('c3','coin','#fbbf24','Mokantys', paid, PREM.length?('<b>'+Math.round(paid/PREM.length*100)+'%</b> konversija'):''));
+  b.appendChild(kpi('c3','star','#a78bfa','Bandymas', PREM.filter(r=>r.plan==='trial').length));
+  b.appendChild(kpi('c3','check','#34d399','Dovanoti', PREM.filter(r=>r.plan==='gift').length, 'ankstyvieji + testuotojai'));
 
-  const panel=el('div','card c7');
-  panel.innerHTML='<h3>Funkcijos</h3><div class="h3sub">Įjunk arba išjunk pasirinktai šeimai</div>';
-  const feat=el('div'); panel.appendChild(feat); b.appendChild(panel);
+  /* --- JUNGIKLIS --- */
+  const sw=el('div','card c12');
+  sw.innerHTML='<h3>'+(on?'✅ Limitai ĮJUNGTI':'⏸️ Limitai išjungti')+'</h3>'+
+    '<div class="h3sub">'+(on
+      ? 'Nemokamos šeimos mato limitus ir Premium skiltį programėlėje.'
+      : 'Visiems viskas neribota, Premium skiltis programėlėje nerodoma. Taip ir turi būti, kol parduotuvėje dar negalima sumokėti.')+'</div>';
+  const swBtn=el('button','btn '+(on?'danger':'gold'));
+  swBtn.textContent=on?'Išjungti limitus':'Įjungti limitus';
+  swBtn.style.marginTop='12px';
+  swBtn.onclick=async()=>{
+    if(!on && !confirm('Įjungti limitus visiems nemokamiems vartotojams?\n\nPrieš tai įsitikink, kad Google Play jau leidžia nusipirkti Premium — kitaip žmonės atsitrenks į sieną ir neturės kaip sumokėti.')) return;
+    swBtn.disabled=true;
+    const out=Object.assign({},LIMS,{enabled:!on});
+    const {error}=await sb.rpc('admin_set_limits',{p_limits:out});
+    swBtn.disabled=false;
+    if(error){toast('Klaida: '+error.message);return;}
+    LIMS=out; toast(on?'Limitai išjungti':'Limitai įjungti'); render();
+  };
+  sw.appendChild(swBtn); b.appendChild(sw);
+
+  /* --- LIMITAI --- */
+  const lim=el('div','card c12');
+  lim.innerHTML='<h3>Nemokamos versijos limitai</h3><div class="h3sub">Skaičiai keliauja į programėles iškart — atnaujinimo (OTA) daryti nereikia. Premium šeimoms limitai negalioja.</div>';
+  const grid=el('div'); grid.style.cssText='display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-top:12px';
+  LIM_FIELDS.forEach(f=>{
+    const w=el('div',null,'<div class="muted" style="font-size:.75rem;margin-bottom:4px;font-weight:600">'+f[1]+'</div>');
+    const i=el('input'); i.type='number'; i.min='0'; i.max='999'; i.id='lim_'+f[0];
+    i.value=(LIMS[f[0]]!=null?LIMS[f[0]]:'');
+    w.appendChild(i); grid.appendChild(w);
+  });
+  lim.appendChild(grid);
+  const save=el('button','btn','Išsaugoti limitus'); save.style.marginTop='12px';
+  save.onclick=async()=>{
+    const out={enabled:LIMS.enabled===true};
+    for(const f of LIM_FIELDS){
+      const n=parseInt($('lim_'+f[0]).value,10);
+      if(isNaN(n)||n<0){ toast('Blogas skaičius: '+f[1]); return; }
+      out[f[0]]=n;
+    }
+    save.disabled=true;
+    const {error}=await sb.rpc('admin_set_limits',{p_limits:out});
+    save.disabled=false;
+    if(error){toast('Klaida: '+error.message);return;}
+    LIMS=out; toast('Limitai išsaugoti');
+  };
+  lim.appendChild(save); b.appendChild(lim);
+
+  /* --- ŠEIMOS --- */
+  const card=el('div','card pad0 c12');
+  card.appendChild(el('div',null,'<div style="padding:16px 18px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">'+
+    '<h3 style="margin:0">Šeimos</h3><span class="tagpill">'+PREM.length+'</span>'+
+    '<div style="flex:1"></div>'+
+    '<select id="prFilt" style="max-width:170px"><option value="">Visi planai</option><option value="paid">Tik mokantys</option><option value="free">Tik nemokami</option><option value="trial">Bandymas</option><option value="gift">Dovanoti</option></select>'+
+    '<input id="prSearch" placeholder="Kodas ar pavadinimas" style="max-width:230px"></div>'));
+  const wrap=el('div','tbl-wrap'); const tbl=el('table');
+  tbl.innerHTML='<thead><tr><th>Šeima</th><th>Kodas</th><th>Planas</th><th>Iki</th><th class="num">Dydis</th><th>Veiksmai</th></tr></thead>';
+  const tb=el('tbody'); tbl.appendChild(tb); wrap.appendChild(tbl); card.appendChild(wrap); b.appendChild(card);
   v.appendChild(b);
 
-  function drawFeat(){
-    feat.innerHTML=''; summary.innerHTML='';
-    const code=sel.value;
-    if(!code){ feat.appendChild(el('div','empty',svg('key')+'<div class="muted" style="font-size:.85rem">Pasirink šeimą kairėje.</div>')); return; }
-    const row=s.familyRows.find(r=>r.code===code);
-    if(row) summary.innerHTML='<div class="statrow" style="border:none;padding:6px 0"><span class="avatar" style="background:'+avatarColor(code)+'">'+esc((row.name||'?').charAt(0).toUpperCase())+'</span><span class="n"><b>'+esc(row.name)+'</b><br><span class="muted" style="font-size:.78rem">'+row.members+' nariai · '+(row.owner?esc(row.owner):'vaiko prieiga')+'</span></span></div>';
-    const cur=new Set(s.ents.filter(e=>e.family_code===code&&e.enabled).map(e=>e.feature));
-    FEATURES.forEach(f=>{
-      const on=cur.has(f.key);
-      const sw=el('div','switch','<div><div class="nm">'+esc(f.name)+'</div><div class="ky">'+esc(f.key)+'</div></div>');
-      const tg=el('button','tgl'+(on?' on':'')); tg.setAttribute('aria-label',f.name);
-      tg.onclick=async()=>{ tg.style.opacity=.5;
-        const {error}=await sb.rpc('admin_set_entitlement',{p_family:code,p_feature:f.key,p_enabled:!on});
-        tg.style.opacity=1;
-        if(error){toast('Klaida: '+error.message);return;}
-        const idx=s.ents.findIndex(e=>e.family_code===code&&e.feature===f.key);
-        if(idx>=0)s.ents[idx].enabled=!on; else s.ents.push({family_code:code,feature:f.key,enabled:!on});
-        s.paying=new Set(s.ents.filter(e=>e.enabled).map(e=>e.family_code)).size; updateNavCounts();
-        toast(!on?'Teisė suteikta':'Teisė atimta'); drawFeat();
-      };
-      sw.appendChild(tg); feat.appendChild(sw);
+  async function setPlan(code,plan,days){
+    if(!confirm('Šeimai '+code+' nustatyti: '+(PLAN_NAME[plan]||plan)+(days?' ('+days+' d.)':'')+'?\n\nPremium galioja VISAI šeimai — tėvams ir vaikams.')) return;
+    const {error}=await sb.rpc('admin_set_premium',{p_code:code,p_plan:plan,p_days:days||null,p_note:plan==='gift'?'Dovanota iš pulto':null});
+    if(error){toast('Klaida: '+error.message);return;}
+    toast(code+' → '+(PLAN_NAME[plan]||plan));
+    await loadPremium(); updateNavCounts(); render();
+  }
+
+  function draw(){
+    const q=($('prSearch').value||'').toLowerCase().trim(), f=$('prFilt').value;
+    tb.innerHTML='';
+    const rows=PREM.filter(r=>{
+      if(q && !String(r.code).toLowerCase().includes(q) && !String(r.family_name).toLowerCase().includes(q)) return false;
+      if(f==='paid') return isPaid(r.plan);
+      if(f==='free') return r.plan==='free';
+      if(f==='trial') return r.plan==='trial';
+      if(f==='gift') return r.plan==='gift';
+      return true;
+    });
+    if(!rows.length){ tb.innerHTML='<tr><td colspan="6"><div class="empty">'+svg('star')+'<div>Nieko nerasta.</div></div></td></tr>'; return; }
+    rows.forEach(r=>{
+      const d=dLeft(r.until);
+      const until=r.until
+        ? (new Date(r.until).toLocaleDateString('lt-LT')+(d!=null?' <span class="muted" style="font-size:.78rem">('+(d>0?d+' d.':'baigėsi')+')</span>':''))
+        : ((r.plan==='life'||r.plan==='gift')?'<span class="muted">amžinai</span>':'—');
+      const init=((r.family_name||'?').trim().charAt(0)||'?').toUpperCase();
+      const tr=el('tr');
+      tr.innerHTML='<td><div class="fam-cell"><span class="avatar" style="background:'+avatarColor(r.code)+'">'+esc(init)+'</span><b>'+esc(r.family_name)+'</b></div></td>'+
+        '<td data-label="Kodas"><code>'+esc(r.code)+'</code></td>'+
+        '<td data-label="Planas">'+planBadge(r.plan)+(r.trial_used&&r.plan==='free'?'<div class="muted" style="font-size:.72rem;margin-top:3px">bandymas panaudotas</div>':'')+'</td>'+
+        '<td data-label="Iki">'+until+'</td>'+
+        '<td class="num muted" style="font-size:.8rem" data-label="Dydis">'+r.kids+'V · '+r.tasks+'D · '+r.rewards+'P</td>';
+      const act=el('td'); act.setAttribute('data-label','Veiksmai');
+      act.style.cssText='display:flex;gap:6px;flex-wrap:wrap';
+      [['Dovana ∞','gift',null,'gold'],['+30 d.','month',30,'ghost'],['+365 d.','year',365,'ghost'],['Nuimti','free',null,'danger']].forEach(a=>{
+        const btn=el('button','btn sm '+a[3],a[0]);
+        btn.style.cssText='padding:5px 9px;font-size:.76rem';
+        btn.onclick=()=>setPlan(r.code,a[1],a[2]);
+        act.appendChild(btn);
+      });
+      tr.appendChild(act); tb.appendChild(tr);
     });
   }
-  sel.onchange=drawFeat; drawFeat();
+  draw();
+  $('prSearch').oninput=draw; $('prFilt').onchange=draw;
 }
 
 /* ====================== PALEIDIMAS ====================== */
